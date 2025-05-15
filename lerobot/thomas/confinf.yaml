@@ -1,0 +1,18 @@
+robot:
+  type: so100
+
+control:
+  type: record
+  fps: 30 
+  single_task: "Grasp a lego block and put it in the bin." 
+  repo_id: tgossin/eval_act_so100_test 
+  tags:
+    - tutorial
+  warmup_time_s: 5
+  episode_time_s: 60 
+  reset_time_s: 10 
+  num_episodes: 10 
+  push_to_hub: false
+  policy:
+    type: act
+    path: /Users/thomas/Documents/lbc/robot/lerobot/model/pretrained_model
