@@ -1,4 +1,3 @@
-# lerobot/common/robot_devices/motors/modbus_rtu_motor.py
 """Modbus RTU motor bus compatible avec l’API LeRobot.
 
 Cette implémentation s’aligne sur les bus Dynamixel et Feetech :
@@ -141,8 +140,11 @@ class ModbusRTUMotorsBus:
             "max_limit_mm": [500.0]
         }
         """
-        self.calibration = calibration
-        logging.info("Calibration loaded for Modbus motors")
+        if "rail_lineaire" in calibration:
+            self.calibration = calibration["rail_lineaire"]
+            logging.info("Calibration loaded for Modbus motors")
+        else:
+            raise ValueError("Invalid calibration data for Modbus motors")
 
     # ------------------- helpers calibration interne ---------------------
     def _get_motor_calib_params(self, motor_name: str):

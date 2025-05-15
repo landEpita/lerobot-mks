@@ -31,6 +31,7 @@ from lerobot.common.robot_devices.cameras.utils import make_cameras_from_configs
 from lerobot.common.robot_devices.motors.modbus_rtu_motor import ModbusRTUMotorsBus
 from lerobot.common.robot_devices.motors.utils import MotorsBus, make_motors_buses_from_configs
 from lerobot.common.robot_devices.robots.configs import ManipulatorRobotConfig
+from lerobot.common.robot_devices.robots.modbus_calibration import run_modbus_rail_calibration
 from lerobot.common.robot_devices.robots.utils import get_arm_id
 from lerobot.common.robot_devices.utils import RobotDeviceAlreadyConnectedError, RobotDeviceNotConnectedError
 
@@ -356,7 +357,15 @@ class ManipulatorRobot:
                     )
                     # TODO(rcadene): add a calibration procedure for the SO100b
                     print(f"arm: {arm}, name: {name}, arm_type: {arm_type}")
-                    calibration = run_arm_manual_calibration(arm, self.robot_type, name, arm_type)
+                    if not isinstance(arm, ModbusRTUMotorsBus):
+                        calibration = run_arm_manual_calibration(arm, self.robot_type, name, arm_type)
+                    if self.robot_type == "so100b":
+                        if isinstance(arm, ModbusRTUMotorsBus):
+                            rail_calib = run_modbus_rail_calibration(
+                                arm,
+                                name
+                            )
+                            calibration["rail_lineaire"] = rail_calib
 
                 print(f"Calibration is done! Saving calibration file '{arm_calib_path}'")
                 arm_calib_path.parent.mkdir(parents=True, exist_ok=True)
@@ -366,15 +375,9 @@ class ManipulatorRobot:
             return calibration
 
         for name, arm in self.follower_arms.items():
-            if name == "rail_lineaire":
-                pass
-            else:
                 calibration = load_or_run_calibration_(name, arm, "follower")
                 arm.set_calibration(calibration)
         for name, arm in self.leader_arms.items():
-            if name == "rail_lineaire":
-                pass
-            else:
                 calibration = load_or_run_calibration_(name, arm, "leader")
                 arm.set_calibration(calibration)
 
