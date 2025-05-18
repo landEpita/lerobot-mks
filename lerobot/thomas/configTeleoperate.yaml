@@ -1,6 +1,5 @@
 robot:
   type: so100b 
-  cameras: {}
 
 control:
   type: teleoperate

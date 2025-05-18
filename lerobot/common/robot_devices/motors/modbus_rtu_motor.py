@@ -74,6 +74,7 @@ class ModbusRTUMotorsBus:
         self.speed_default = getattr(config, "speed_default", 300)  # RPM
 
         self.mu_step_rev = self.microstep * self.steps_rev  # micropas/360°
+        self.upas_to_counts = ENC_MAX_CONST / self.mu_step_rev 
 
     # ------------------------ connexion / déconnexion --------------------
     def connect(self):
@@ -135,9 +136,7 @@ class ModbusRTUMotorsBus:
         {
             "motor_names": ["axe_translation"],
             "homing_offset_encoder_counts": [0],
-            "encoder_counts_per_mm": [2000.0],
-            "min_limit_mm": [0.0],
-            "max_limit_mm": [500.0]
+            "max_encoder_count": [2000.0],
         }
         """
         if "rail_lineaire" in calibration:
@@ -149,14 +148,13 @@ class ModbusRTUMotorsBus:
     # ------------------- helpers calibration interne ---------------------
     def _get_motor_calib_params(self, motor_name: str):
         if not self.calibration:
-            return 0, 1.0, -np.inf, np.inf, False
-        idx = self.calibration["motor_names"].index(motor_name)
-        offset = self.calibration["homing_offset_encoder_counts"][idx]
-        cpp = self.calibration["encoder_counts_per_mm"][idx]
-        lo = self.calibration["min_limit_mm"][idx]
-        hi = self.calibration["max_limit_mm"][idx]
-        inv = self.calibration.get("drive_direction_inverted", [False] * len(self.motor_names))[idx]
-        return offset, cpp, lo, hi, inv
+            return 0, np.inf
+        offset = self.calibration["homing_offset_encoder_counts"]
+        he = self.calibration["max_encoder_count"]
+        return offset, he
+    
+    def µpas_to_counts(self, ust): 
+        return int(round(ust * self.upas_to_counts))
 
     # ---------------------------------------------------------------------
     # Encoders
@@ -183,18 +181,30 @@ class ModbusRTUMotorsBus:
             return raw_counts.astype(np.float32)
         phys = np.zeros_like(raw_counts, dtype=np.float32)
         for i, n in enumerate(names):
-            off, cpp, *_ = self._get_motor_calib_params(n)
-            phys[i] = (raw_counts[i] - off) / cpp
+            off, _ = self._get_motor_calib_params(n)
+            print(f"raw_counts {raw_counts[i]} off {off}")
+            phys[i] = (raw_counts[i] - off)
+            print(f"phys {phys[i]}")
         return phys
 
     def revert_calibration(self, phys_vals: np.ndarray, names: Sequence[str]):
+        """Ajoute seulement l’offset. Vérifie que le résultat est dans [offset, max]."""
         if not self.calibration:
             return phys_vals.astype(np.int64)
+
         enc = np.zeros_like(phys_vals, dtype=np.int64)
         for i, n in enumerate(names):
-            off, cpp, lo, hi, _ = self._get_motor_calib_params(n)
-            pv = float(np.clip(phys_vals[i], lo, hi))
-            enc[i] = int(round(pv * cpp + off))
+            offset, enc_max = self._get_motor_calib_params(n)
+
+            # Ajout de l’offset (donc conversion en encoder count)
+            target_enc = int(round(phys_vals[i] + offset))
+
+            if target_enc < offset:
+                target_enc = offset
+            if target_enc > enc_max:
+                target_enc = enc_max
+
+            enc[i] = target_enc
         return enc
 
     # ---------------------------------------------------------------------
@@ -230,7 +240,6 @@ class ModbusRTUMotorsBus:
                 logging.warning(f"Read {data_name} not implemented for Modbus (motor {n})")
                 raw = 0
             raw_vals.append(raw)
-
         raw_arr = np.array(raw_vals, dtype=np.int64)
         if data_name == "Present_Position":
             out = self.apply_calibration(raw_arr, motor_names_to_read)
@@ -294,7 +303,7 @@ class ModbusRTUMotorsBus:
 
                 elif data_name == "Goal_Position":
                     enc_target = self.revert_calibration(np.asarray([val]), [name])[0]
-                    driver_steps = int(enc_target * self.mu_step_rev / ENC_MAX_CONST)
+                    driver_steps = int(self.µpas_to_counts(enc_target))
                     regs = self._build_f5_payload(driver_steps, self.acc_default, self.speed_default)
                     rq = self.client.write_registers(
                         address=REGISTER_GOAL_COMMAND_START, values=regs, slave=sid

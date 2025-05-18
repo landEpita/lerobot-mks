@@ -345,6 +345,7 @@ class ManipulatorRobot:
             else:
                 # TODO(rcadene): display a warning in __init__ if calibration file not available
                 print(f"Missing calibration file '{arm_calib_path}'")
+                calibration = {}
 
                 if self.robot_type in ["koch", "koch_bimanual", "aloha"]:
                     from lerobot.common.robot_devices.robots.dynamixel_calibration import run_arm_calibration

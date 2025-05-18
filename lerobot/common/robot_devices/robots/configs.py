@@ -711,7 +711,7 @@ class LeKiwiRobotConfig(RobotConfig):
 @dataclass
 class MonRobot7AxesConfig(ManipulatorRobotConfig):
 
-    calibration_dir: str = ".cache/calibration/so100"
+    calibration_dir: str = ".cache/calibration/so100b"
     # `max_relative_target` limits the magnitude of the relative positional target vector for safety purposes.
     # Set this to a positive scalar to have the same value for all motors, or a list that is the same length as
     # the number of motors in your follower arms.
@@ -719,8 +719,8 @@ class MonRobot7AxesConfig(ManipulatorRobotConfig):
 
     leader_arms: dict[str, MotorsBusConfig] = field(
         default_factory=lambda: {
-            "right": FeetechMotorsBusConfig(
-                port="/dev/tty.usbmodem58FD0162241",
+            "left": FeetechMotorsBusConfig(
+                port="/dev/tty.usbmodem58FD0166391",
                 motors={
                     # name: (index, model)
                     "shoulder_pan": [1, "sts3215"],
@@ -736,8 +736,8 @@ class MonRobot7AxesConfig(ManipulatorRobotConfig):
 
     follower_arms: dict[str, MotorsBusConfig] = field(
         default_factory=lambda: {
-            "right": FeetechMotorsBusConfig(
-                port="/dev/tty.usbmodem58FD0172321",
+            "left": FeetechMotorsBusConfig(
+                port="/dev/tty.usbmodem58FD0162261",
                 motors={
                     # name: (index, model)
                     "shoulder_pan": [1, "sts3215"],
@@ -764,12 +764,12 @@ class MonRobot7AxesConfig(ManipulatorRobotConfig):
                 width=640,
                 height=480,
             ),
-            "camD": OpenCVCameraConfig(
-                camera_index=1,
-                fps=30,
-                width=640,
-                height=480,
-            ),
+            # "camD": OpenCVCameraConfig(
+            #     camera_index=1,
+            #     fps=30,
+            #     width=640,
+            #     height=480,
+            # ),
         }
     )
 
