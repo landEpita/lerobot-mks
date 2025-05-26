@@ -182,9 +182,9 @@ class ModbusRTUMotorsBus:
         phys = np.zeros_like(raw_counts, dtype=np.float32)
         for i, n in enumerate(names):
             off, _ = self._get_motor_calib_params(n)
-            print(f"raw_counts {raw_counts[i]} off {off}")
+            # print(f"raw_counts {raw_counts[i]} off {off}")
             phys[i] = (raw_counts[i] - off)
-            print(f"phys {phys[i]}")
+            # print(f"phys {phys[i]}")
         return phys
 
     def revert_calibration(self, phys_vals: np.ndarray, names: Sequence[str]):
@@ -196,13 +196,14 @@ class ModbusRTUMotorsBus:
         for i, n in enumerate(names):
             offset, enc_max = self._get_motor_calib_params(n)
 
+            val = phys_vals[i]
             # Ajout de l’offset (donc conversion en encoder count)
-            target_enc = int(round(phys_vals[i] + offset))
+            val = min(enc_max, val)
+            val = max(offset, val)
 
-            if target_enc < offset:
-                target_enc = offset
-            if target_enc > enc_max:
-                target_enc = enc_max
+            target_enc = int(round(val + offset))
+
+
 
             enc[i] = target_enc
         return enc
@@ -286,6 +287,7 @@ class ModbusRTUMotorsBus:
         if values_np.size != len(motor_names_to_write):
             raise ValueError("Mismatch values/motors in Modbus.write")
 
+
         # Boucle écriture -------------------------------------------------------
         for val, name in zip(values_np, motor_names_to_write, strict=True):
             sid = self.motor_modbus_ids[name]
@@ -303,8 +305,10 @@ class ModbusRTUMotorsBus:
 
                 elif data_name == "Goal_Position":
                     enc_target = self.revert_calibration(np.asarray([val]), [name])[0]
-                    driver_steps = int(self.µpas_to_counts(enc_target))
-                    regs = self._build_f5_payload(driver_steps, self.acc_default, self.speed_default)
+                    # print(f"enc_target {enc_target}")
+                    # driver_steps = int(self.µpas_to_counts(enc_target))
+                    # print(f"driver_steps {driver_steps}")
+                    regs = self._build_f5_payload(enc_target, self.acc_default, self.speed_default)
                     rq = self.client.write_registers(
                         address=REGISTER_GOAL_COMMAND_START, values=regs, slave=sid
                     )

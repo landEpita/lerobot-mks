@@ -3,6 +3,7 @@ robot:
 
 control:
   type: teleoperate
+  display_data: true
 
 
 

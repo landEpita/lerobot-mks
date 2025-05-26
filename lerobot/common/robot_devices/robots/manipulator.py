@@ -57,7 +57,7 @@ def ensure_safe_goal_position(
         # The calling function should ensure correct dimensions.
         logging.warning(f"Shape mismatch for max_relative_target ({max_relative_target.shape}) and goal_pos diff ({diff.shape}). Ensure correct configuration.")
 
-
+    
     safe_diff = torch.minimum(diff, max_relative_target)
     safe_diff = torch.maximum(safe_diff, -max_relative_target)
     safe_goal_pos = present_pos + safe_diff
@@ -661,9 +661,10 @@ class ManipulatorRobot:
             goal_pos = action[from_idx:to_idx]
             from_idx = to_idx
 
+
             # Cap goal position when too far away from present position.
             # Slower fps expected due to reading from the follower.
-            if self.config.max_relative_target is not None:
+            if self.config.max_relative_target is not None and not isinstance(self.follower_arms[name], ModbusRTUMotorsBus):
                 present_pos = self.follower_arms[name].read("Present_Position")
                 present_pos = torch.from_numpy(present_pos)
                 goal_pos = ensure_safe_goal_position(goal_pos, present_pos, self.config.max_relative_target)

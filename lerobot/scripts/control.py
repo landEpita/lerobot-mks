@@ -7,6 +7,7 @@ import numpy as np
 import random
 import shutil
 import rerun as rr
+import collections
 
 # from safetensors.torch import load_file, save_file
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
@@ -105,22 +106,42 @@ def record(
     
     timestamp = 0
     start_episode_t = time.perf_counter()
-    print("@@@@@@ Start recording trajectory @@@@@@")
+    memory  = collections.deque(maxlen=10)
+    last_value = None
+    # print("@@@@@@ Start recording trajectory @@@@@@")
     while timestamp < control_time_s:
         start_loop_t = time.perf_counter()
         
         observation = robot.capture_observation()
-        print("observation: ", observation)
+        # print("observation: ", observation)
         if policy is not None:
             pred_action = predict_action(
                 observation, policy, get_safe_torch_device(policy.config.device), policy.config.use_amp
             )
-            print("Action sent: ", pred_action)
+            # print("Action sent: ", pred_action[-1])
+
+            memory.append(pred_action[-1])
+            if len(memory) > 5:
+                pred_action = pred_action.clone()  # Detach from inference mode
+                moyenne = sum(memory) / len(memory)
+                if last_value is not None and abs(moyenne - last_value) < 1000 :
+                    print("Action last: ", last_value)
+                    pred_action[-1] = last_value
+                else:
+                    pred_action[-1] = sum(memory) / len(memory)
+                    print("Action smoothed: ", pred_action[-1])
+                    last_value = pred_action[-1]
+            else:
+                print("Action sent: ", pred_action[-1])
+
+                
+            
 
             # Action can eventually be clipped using `max_relative_target`,
             # so action actually sent is saved in the dataset.
             action = robot.send_action(pred_action)
             action = {"action": action}
+
 
         if cfg.fps is not None:
             dt_s = time.perf_counter() - start_loop_t
@@ -264,7 +285,7 @@ def control_robot(
             resume=False
         )
     )
-    cfg.control.policy.pretrained_path = '/Users/thomas/Documents/lbc/robot/lerobot/model/mkd'
+    cfg.control.policy.pretrained_path = '/Users/thomas/Documents/lbc/robot/lerobot/model/mks2'
 
     robot = make_robot_from_config(cfg.robot)
     record(robot, cfg.control, index=index)
