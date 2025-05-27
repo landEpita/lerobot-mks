@@ -1,12 +1,12 @@
 """
-Minimal control script for running a policy on the robot **without** recording a dataset.
+Minimal control script for running a **pre‑trained** policy on the robot – *sans* dataset or sim‑env.
 
-How it works
-============
-1. Builds the robot from a config (replace `robot_cfg` with yours).
-2. Loads a pretrained ACT policy (point `pretrained_path` to your checkpoint).
-3. Streams observations ➜ policy ➜ actions at the desired FPS.
-4. Stops after `EPISODE_TIME_S` **or** automatically when all joints have been idle for a while.
+Changes in this version
+=======================
+* **Fixes** the error *Either one of a dataset metadata or a sim env must be provided.*
+  We now bypass `make_policy()` entirely and load the policy straight from the checkpoint.
+* Keeps the auto‑stop safety and constant‑FPS loop.
+* Everything else (robot/policy config) remains editable in the user section.
 """
 
 import time
@@ -15,31 +15,30 @@ from collections import deque
 
 import torch
 
-from lerobot.common.policies.factory import make_policy
 from lerobot.common.robot_devices.control_utils import predict_action
 from lerobot.common.robot_devices.robots.utils import Robot, make_robot_from_config
 from lerobot.common.robot_devices.utils import busy_wait, safe_disconnect
 from lerobot.common.robot_devices.motors.modbus_rtu_motor import ModbusRTUMotorsBus
 from lerobot.common.utils.utils import get_safe_torch_device
-from lerobot.common.policies.act.configuration_act import ACTConfig
+
+# 👉 NEW: direct import of the policy class (no need for make_policy / metadata)
+from lerobot.common.policies.factory import get_policy_class
 
 ########################################################################################
 # USER‑EDITABLE SECTION                                                                #
 ########################################################################################
 # 1. Provide your own `robot_cfg` (example below).
-# 2. Point `pretrained_path` in `policy_cfg` to your checkpoint.
+# 2. Point `PRETRAINED_PATH` to your checkpoint.
 # 3. Adjust runtime parameters (FPS, EPISODE_TIME_S, etc.).
 ########################################################################################
 
-# --- Example robot configuration -----------------------------------------------------
+# --- Robot configuration -------------------------------------------------------------
 from lerobot.common.robot_devices.robots.configs import (
     FeetechMotorsBusConfig,
     MonRobot7AxesConfig,
     OpenCVCameraConfig,
 )
 from lerobot.common.robot_devices.motors.configs import ModbusRTUMotorsBusConfig
-from lerobot.configs.types import PolicyFeature, FeatureType
-from lerobot.common.policies.act.configuration_act import NormalizationMode
 
 robot_cfg = MonRobot7AxesConfig(
     leader_arms={
@@ -103,40 +102,10 @@ robot_cfg = MonRobot7AxesConfig(
     calibration_dir=".cache/calibration/so100b",
 )
 
-policy_cfg = ACTConfig(
-    n_obs_steps=1,
-    normalization_mapping={
-        "VISUAL": NormalizationMode.MEAN_STD,
-        "STATE": NormalizationMode.MEAN_STD,
-        "ACTION": NormalizationMode.MEAN_STD,
-    },
-    input_features={
-        "observation.state": PolicyFeature(type=FeatureType.STATE, shape=(7,)),
-        "observation.images.mounted": PolicyFeature(
-            type=FeatureType.VISUAL, shape=(3, 480, 640)
-        ),
-    },
-    output_features={"action": PolicyFeature(type=FeatureType.ACTION, shape=(7,))},
-    device="cuda",
-    use_amp=False,
-    chunk_size=100,
-    n_action_steps=100,
-    vision_backbone="resnet18",
-    pretrained_backbone_weights="ResNet18_Weights.IMAGENET1K_V1",
-    dim_model=512,
-    n_heads=8,
-    dim_feedforward=3200,
-    n_encoder_layers=4,
-    n_decoder_layers=1,
-    use_vae=True,
-    latent_dim=32,
-    dropout=0.1,
-    kl_weight=10.0,
-    optimizer_lr=1e-05,
-    optimizer_weight_decay=0.0001,
-    optimizer_lr_backbone=1e-05,
-    pretrained_path="/Users/thomas/Documents/lbc/robot/lerobot/model/mks2",
-)
+# --- Policy --------------------------------------------------------------------------
+PRETRAINED_PATH = "/Users/thomas/Documents/lbc/robot/lerobot/model/mks2"  # <‑‑ change me
+POLICY_TYPE = "act"  # "tdmpc", "diffusion", …
+DEVICE = "cuda"       # | "cpu" | "mps"
 
 ########################################################################################
 # RUNTIME PARAMETERS                                                                   #
@@ -151,17 +120,15 @@ EPISODE_TIME_S = 50  # seconds — set to None for infinite runtime
 
 @dataclass
 class ControlParams:
-    """Minimal set of parameters for action streaming."""
-
     fps: int = FPS
     episode_time_s: float | None = EPISODE_TIME_S
 
 
 @safe_disconnect
-def run_actions(robot: Robot, policy_cfg: ACTConfig, params: ControlParams) -> None:
-    """Stream actions from a policy to the robot until timeout or auto‑stop."""
+def run_actions(robot: Robot, params: ControlParams) -> None:
+    """Stream actions from a pre‑trained policy to the robot until timeout or auto‑stop."""
 
-    # ‑‑‑ Connect robot ‑‑‑
+    # --- Connect robot ---
     if not robot.is_connected:
         robot.connect()
 
@@ -170,9 +137,10 @@ def run_actions(robot: Robot, policy_cfg: ACTConfig, params: ControlParams) -> N
         if isinstance(arm, ModbusRTUMotorsBus):
             arm.write("Torque_Enable", 1)
 
-    # Load policy once
-    policy = make_policy(policy_cfg, ds_meta=None)
-    device = get_safe_torch_device(policy_cfg.device)
+    # --- Load policy once (direct load, no metadata needed) ---
+    policy_cls = get_policy_class(POLICY_TYPE)
+    policy = policy_cls.from_pretrained(PRETRAINED_PATH).to(DEVICE)
+    device = get_safe_torch_device(DEVICE)
 
     fifo: deque[torch.Tensor] = deque(maxlen=20)
     per_axis_thresh = torch.tensor([0.5, 0.5, 0.7, 0.7, 0.7, 0.1, 1500])
@@ -186,7 +154,7 @@ def run_actions(robot: Robot, policy_cfg: ACTConfig, params: ControlParams) -> N
 
         # 1) Observation ↦ policy ↦ action
         obs = robot.capture_observation()
-        act = predict_action(obs, policy, device, policy_cfg.use_amp)
+        act = predict_action(obs, policy, device, use_amp=False)
         sent_act = robot.send_action(act)
         fifo.append(sent_act.clone())
 
@@ -194,7 +162,7 @@ def run_actions(robot: Robot, policy_cfg: ACTConfig, params: ControlParams) -> N
         if len(fifo) == fifo.maxlen:
             std_per_motor = torch.std(torch.stack(list(fifo)), dim=0)
             if torch.all(std_per_motor < per_axis_thresh):
-                print("Auto‑stop: robot idle (std < threshold)")
+                print("Auto‑stop: robot idle (std < threshold)")
                 break
 
         # 3) Keep constant FPS
@@ -212,4 +180,4 @@ def run_actions(robot: Robot, policy_cfg: ACTConfig, params: ControlParams) -> N
 if __name__ == "__main__":
     params = ControlParams()
     robot = make_robot_from_config(robot_cfg)
-    run_actions(robot, policy_cfg, params)
+    run_actions(robot, params)
