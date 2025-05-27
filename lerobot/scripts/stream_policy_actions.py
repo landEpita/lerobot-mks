@@ -105,7 +105,7 @@ robot_cfg = MonRobot7AxesConfig(
 # --- Policy --------------------------------------------------------------------------
 PRETRAINED_PATH = "/Users/thomas/Documents/lbc/robot/lerobot/model/mks2"  # <‑‑ change me
 POLICY_TYPE = "act"  # "tdmpc", "diffusion", …
-DEVICE = "cuda"       # | "cpu" | "mps"
+DEVICE = "mps"       # | "cpu" | "mps"
 
 ########################################################################################
 # RUNTIME PARAMETERS                                                                   #
@@ -172,6 +172,8 @@ def run_actions(robot: Robot, params: ControlParams) -> None:
         timestamp = time.perf_counter() - start_episode_t
 
     print(">>> Done!")
+    robot.disconnect()  
+    return
 
 
 ########################################################################################
