@@ -14,3 +14,4 @@ control:
   num_episodes: 50
   push_to_hub: false
   display_data: true
+  resume: true

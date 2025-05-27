@@ -107,6 +107,7 @@ def record(
     timestamp = 0
     start_episode_t = time.perf_counter()
     memory  = collections.deque(maxlen=10)
+    fifo = collections.deque(maxlen=20)
     last_value = None
     # print("@@@@@@ Start recording trajectory @@@@@@")
     while timestamp < control_time_s:
@@ -120,19 +121,19 @@ def record(
             )
             # print("Action sent: ", pred_action[-1])
 
-            memory.append(pred_action[-1])
-            if len(memory) > 5:
-                pred_action = pred_action.clone()  # Detach from inference mode
-                moyenne = sum(memory) / len(memory)
-                if last_value is not None and abs(moyenne - last_value) < 1000 :
-                    print("Action last: ", last_value)
-                    pred_action[-1] = last_value
-                else:
-                    pred_action[-1] = sum(memory) / len(memory)
-                    print("Action smoothed: ", pred_action[-1])
-                    last_value = pred_action[-1]
-            else:
-                print("Action sent: ", pred_action[-1])
+            # memory.append(pred_action[-1])
+            # if len(memory) > 5:
+            #     pred_action = pred_action.clone()  # Detach from inference mode
+            #     moyenne = sum(memory) / len(memory)
+            #     if last_value is not None and abs(moyenne - last_value) < 1000 :
+            #         print("Action last: ", last_value)
+            #         pred_action[-1] = last_value
+            #     else:
+            #         pred_action[-1] = sum(memory) / len(memory)
+            #         print("Action smoothed: ", pred_action[-1])
+            #         last_value = pred_action[-1]
+            # else:
+            #     print("Action sent: ", pred_action[-1])
 
                 
             
@@ -140,7 +141,18 @@ def record(
             # Action can eventually be clipped using `max_relative_target`,
             # so action actually sent is saved in the dataset.
             action = robot.send_action(pred_action)
+            fifo.append(action.clone())
             action = {"action": action}
+            print("len(fifo): ", len(fifo))
+            per_axis_thresh = torch.tensor([0.5, 0.5, 0.7, 0.7, 0.7, 0.1, 1500])
+            if len(fifo) == 20:
+                std_per_motor = torch.std(torch.stack(list(fifo)), dim=0)
+                print("std_per_motor: ", std_per_motor)
+                if torch.all(std_per_motor < per_axis_thresh):
+                    print(
+                        f"Auto-stop : écart-type {std_per_motor} < "
+                    )
+                    break
 
 
         if cfg.fps is not None:
